@@ -55,17 +55,23 @@ const char* bs_status_text(int code) {
     return (cindex > sizeof(bs_status_verbose) / sizeof(char*)) ? 0 : bs_status_verbose[cindex];
 }
 
-int bs_resolve_address(const char *host, int port, struct sockaddr_in *server) {
+int bs_resolve_address(const char *host, int port, struct addrinfo *server) {
     char service[64];
-    struct addrinfo *addr, *rec;
+    struct addrinfo hints, *addr, *rec;
+
+    memset(&hints, '\0', sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = 0;
+    hints.ai_protocol = 0;
 
     snprintf(service, 64, "%d", port);
-    if (getaddrinfo(host, service, 0, &addr) != 0)
+    if (getaddrinfo(host, service, &hints, &addr) != 0)
         return BS_STATUS_FAIL;
 
     for (rec = addr; rec != 0; rec = rec->ai_next) {
-        if (rec->ai_family == AF_INET) {
-            memcpy(server, rec->ai_addr, sizeof(*server));
+        if (rec->ai_family == AF_INET || rec->ai_family == AF_INET6) {
+            memcpy(server, rec, sizeof(*server));
             break;
         }
     }
@@ -76,13 +82,23 @@ int bs_resolve_address(const char *host, int port, struct sockaddr_in *server) {
 
 int bs_connect(const char *host, int port) {
     int fd, state = 1;
-    struct sockaddr_in server;
+    struct addrinfo server;
 
-    fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0 || bs_resolve_address(host, port, &server) < 0)
+    if (bs_resolve_address(host, port, &server) < 0)
+    {  
+        printf("resolve failed\n");
         return BS_STATUS_FAIL;
+    }
 
-    if (connect(fd, (struct sockaddr*)&server, sizeof(server)) != 0) {
+    fd = socket(server.ai_family, server.ai_socktype, server.ai_protocol);
+    if (fd < 0)
+    {
+        printf("socket() failed\n");
+        return BS_STATUS_FAIL;
+    }
+
+    if (connect(fd, server.ai_addr, server.ai_addrlen) != 0) {
+        printf("connect() failed %d %d\n", server.ai_family, server.ai_addrlen);
         close(fd);
         return BS_STATUS_FAIL;
     }
@@ -93,19 +109,22 @@ int bs_connect(const char *host, int port) {
 }
 
 int bs_connect_with_timeout(const char *host, int port, float secs) {
-    struct sockaddr_in server;
+    struct addrinfo server;
     int fd, res, option, state = 1;
     socklen_t option_length;
     struct pollfd pfd;
 
-    fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0 || bs_resolve_address(host, port, &server) < 0)
+    if (bs_resolve_address(host, port, &server) < 0)
+        return BS_STATUS_FAIL;
+
+    fd = socket(server.ai_family, server.ai_socktype, server.ai_protocol);
+    if (fd < 0)
         return BS_STATUS_FAIL;
 
     // Set non-blocking
     fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, NULL) | O_NONBLOCK);
 
-    res = connect(fd, (struct sockaddr*)&server, sizeof(server));
+    res = connect(fd, server.ai_addr, server.ai_addrlen);
     if (res < 0) {
         if (errno == EINPROGRESS) {
             // Init poll structure
