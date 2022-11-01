@@ -55,9 +55,10 @@ const char* bs_status_text(int code) {
     return (cindex > sizeof(bs_status_verbose) / sizeof(char*)) ? 0 : bs_status_verbose[cindex];
 }
 
-int bs_resolve_address(const char *host, int port, struct addrinfo *server) {
+int bs_connect(const char *host, int port) {
     char service[64];
-    struct addrinfo hints, *addr, *rec;
+    int fd, state = 1;
+    struct addrinfo hints, *server, *rec;
 
     memset(&hints, '\0', sizeof(hints));
     hints.ai_family = AF_UNSPEC;
@@ -66,42 +67,27 @@ int bs_resolve_address(const char *host, int port, struct addrinfo *server) {
     hints.ai_protocol = 0;
 
     snprintf(service, 64, "%d", port);
-    if (getaddrinfo(host, service, &hints, &addr) != 0)
+    if (getaddrinfo(host, service, &hints, &server) != 0)
         return BS_STATUS_FAIL;
 
-    for (rec = addr; rec != 0; rec = rec->ai_next) {
+    for (rec = server; rec != 0; rec = rec->ai_next) {
         if (rec->ai_family == AF_INET || rec->ai_family == AF_INET6) {
-            memcpy(server, rec, sizeof(*server));
-            break;
+            fd = socket(rec->ai_family, rec->ai_socktype, rec->ai_protocol);
+            if (fd < 0)
+                continue;
+
+            if (connect(fd, rec->ai_addr, rec->ai_addrlen) != 0) {
+                close(fd);
+                fd = -1;
+                continue;
+            }
+
+            break; /* got one */
         }
     }
-
-    freeaddrinfo(addr);
-    return BS_STATUS_OK;
-}
-
-int bs_connect(const char *host, int port) {
-    int fd, state = 1;
-    struct addrinfo server;
-
-    if (bs_resolve_address(host, port, &server) < 0)
-    {  
-        printf("resolve failed\n");
-        return BS_STATUS_FAIL;
-    }
-
-    fd = socket(server.ai_family, server.ai_socktype, server.ai_protocol);
+    freeaddrinfo(server);
     if (fd < 0)
-    {
-        printf("socket() failed\n");
         return BS_STATUS_FAIL;
-    }
-
-    if (connect(fd, server.ai_addr, server.ai_addrlen) != 0) {
-        printf("connect() failed %d %d\n", server.ai_family, server.ai_addrlen);
-        close(fd);
-        return BS_STATUS_FAIL;
-    }
 
     /* disable nagle - we buffer in the application layer */
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &state, sizeof(state));
@@ -109,49 +95,70 @@ int bs_connect(const char *host, int port) {
 }
 
 int bs_connect_with_timeout(const char *host, int port, float secs) {
-    struct addrinfo server;
+    char service[64];
+    struct addrinfo hints, *server, *rec;
     int fd, res, option, state = 1;
     socklen_t option_length;
     struct pollfd pfd;
 
-    if (bs_resolve_address(host, port, &server) < 0)
+    memset(&hints, '\0', sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = 0;
+    hints.ai_protocol = 0;
+
+    snprintf(service, 64, "%d", port);
+    if (getaddrinfo(host, service, &hints, &server) != 0)
         return BS_STATUS_FAIL;
 
-    fd = socket(server.ai_family, server.ai_socktype, server.ai_protocol);
-    if (fd < 0)
-        return BS_STATUS_FAIL;
+    for (rec = server; rec != 0; rec = rec->ai_next) {
+        if (rec->ai_family == AF_INET || rec->ai_family == AF_INET6) {
+            fd = socket(rec->ai_family, rec->ai_socktype, rec->ai_protocol);
+            if (fd < 0)
+                continue;
 
-    // Set non-blocking
-    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, NULL) | O_NONBLOCK);
+            // Set non-blocking
+            fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, NULL) | O_NONBLOCK);
 
-    res = connect(fd, server.ai_addr, server.ai_addrlen);
-    if (res < 0) {
-        if (errno == EINPROGRESS) {
-            // Init poll structure
-            pfd.fd = fd;
-            pfd.events = POLLOUT;
+            res = connect(fd, rec->ai_addr, rec->ai_addrlen);
+            if (res < 0) {
+                if (errno == EINPROGRESS) {
+                    // Init poll structure
+                    pfd.fd = fd;
+                    pfd.events = POLLOUT;
 
-            int ret = poll(&pfd, 1, (int)(secs*1000));
-            if (ret > 0) {
-                option_length = sizeof(int);
-                getsockopt(fd, SOL_SOCKET, SO_ERROR, (void*)(&option), &option_length);
-                if (option) {
+                    int ret = poll(&pfd, 1, (int)(secs*1000));
+                    if (ret > 0) {
+                        option_length = sizeof(int);
+                        getsockopt(fd, SOL_SOCKET, SO_ERROR, (void*)(&option), &option_length);
+                        if (option) {
+                            close(fd);
+                            fd = -1;
+                            continue;
+                        }
+                    }
+                    else if (ret == 0) {
+                        close(fd);
+                        fd = -1;
+                        continue;
+                    } else {
+                        close(fd);
+                        fd = -1;
+                        continue;
+                    }
+                } else {
                     close(fd);
-                    return BS_STATUS_FAIL;
+                    fd = -1;
+                    continue;
                 }
             }
-            else if (ret == 0) {
-                close(fd);
-                return BS_STATUS_TIMED_OUT;
-            } else {
-                close(fd);
-                return BS_STATUS_FAIL;
-            }
-        } else {
-            close(fd);
-            return BS_STATUS_FAIL;
+
+            break; /* got one */
         }
     }
+    freeaddrinfo(server);
+    if (fd < 0)
+        return BS_STATUS_FAIL;
 
     // Set to blocking mode
     fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, NULL) & ~(O_NONBLOCK));
