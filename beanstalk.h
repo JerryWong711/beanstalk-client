@@ -80,8 +80,8 @@ BSC_EXPORT void bs_free_message(BSM* m);
 BSC_EXPORT void bs_free_job(BSJ *job);
 
 // returns socket descriptor or BS_STATUS_FAIL
-BSC_EXPORT int bs_connect(const char *host, int port);
-BSC_EXPORT int bs_connect_with_timeout(const char *host, int port, float secs);
+BSC_EXPORT int bs_connect(const char *host, uint16_t port);
+BSC_EXPORT int bs_connect_with_timeout(const char *host, uint16_t port, float secs);
 
 // returns job id or one of the negative failure codes.
 BSC_EXPORT int64_t bs_put(int fd, uint32_t priority, uint32_t delay, uint32_t ttr, const char *data, size_t bytes);

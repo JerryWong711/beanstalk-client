@@ -55,8 +55,8 @@ const char* bs_status_text(int code) {
     return (cindex > sizeof(bs_status_verbose) / sizeof(char*)) ? 0 : bs_status_verbose[cindex];
 }
 
-int bs_connect(const char *host, int port) {
-    char service[64];
+int bs_connect(const char *host, uint16_t port) {
+    char service[6];
     int fd, state = 1;
     struct addrinfo hints, *server, *rec;
 
@@ -66,7 +66,7 @@ int bs_connect(const char *host, int port) {
     hints.ai_flags = 0;
     hints.ai_protocol = 0;
 
-    snprintf(service, 64, "%d", port);
+    snprintf(service, 6, "%d", port);
     if (getaddrinfo(host, service, &hints, &server) != 0)
         return BS_STATUS_FAIL;
 
@@ -94,7 +94,7 @@ int bs_connect(const char *host, int port) {
     return fd;
 }
 
-int bs_connect_with_timeout(const char *host, int port, float secs) {
+int bs_connect_with_timeout(const char *host, uint16_t port, float secs) {
     char service[64];
     struct addrinfo hints, *server, *rec;
     int fd, res, option, state = 1;
