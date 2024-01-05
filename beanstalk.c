@@ -616,8 +616,7 @@ int bs_list_tube_used(int fd, char **tube) {
     BS_SEND(fd, command, strlen(command));
     message = bs_recv_message(fd, BS_MESSAGE_NO_BODY);
     if (BS_STATUS_IS(message->status, bs_resp_using)) {
-        *tube = (char*)calloc(1, strlen(message->status) - strlen(bs_resp_using) + 1);
-        strcpy(*tube, message->status + strlen(bs_resp_using) + 1);
+        *tube = strdup(message->status + strlen(bs_resp_using) + 1);
         bs_free_message(message);
         return BS_STATUS_OK;
     }
