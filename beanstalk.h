@@ -10,7 +10,7 @@
 #include <netdb.h>
 
 #include <netinet/in.h>
-#include <sys/fcntl.h>
+#include <fcntl.h>
 
 #define BS_MAJOR_VERSION  1
 #define BS_MINOR_VERSION  4
