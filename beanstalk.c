@@ -57,16 +57,16 @@ const char* bs_status_text(int code) {
 
 int bs_connect(const char *host, uint16_t port) {
     char service[6];
-    int fd, state = 1;
+    int fd = -1, state = 1;
     struct addrinfo hints, *server, *rec;
 
     memset(&hints, '\0', sizeof(hints));
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = 0;
+    hints.ai_flags = AI_ADDRCONFIG;
     hints.ai_protocol = 0;
 
-    snprintf(service, 6, "%d", port);
+    snprintf(service, sizeof(service), "%d", port);
     if (getaddrinfo(host, service, &hints, &server) != 0)
         return BS_STATUS_FAIL;
 
@@ -95,19 +95,19 @@ int bs_connect(const char *host, uint16_t port) {
 }
 
 int bs_connect_with_timeout(const char *host, uint16_t port, float secs) {
-    char service[64];
+    char service[6];
     struct addrinfo hints, *server, *rec;
-    int fd, res, option, state = 1;
+    int fd = -1, res, option, state = 1;
     socklen_t option_length;
     struct pollfd pfd;
 
     memset(&hints, '\0', sizeof(hints));
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = 0;
+    hints.ai_flags = AI_ADDRCONFIG;
     hints.ai_protocol = 0;
 
-    snprintf(service, 64, "%d", port);
+    snprintf(service, sizeof(service), "%d", port);
     if (getaddrinfo(host, service, &hints, &server) != 0)
         return BS_STATUS_FAIL;
 
@@ -129,9 +129,8 @@ int bs_connect_with_timeout(const char *host, uint16_t port, float secs) {
 
                     int ret = poll(&pfd, 1, (int)(secs*1000));
                     if (ret > 0) {
-                        option_length = sizeof(int);
-                        getsockopt(fd, SOL_SOCKET, SO_ERROR, (void*)(&option), &option_length);
-                        if (option) {
+                        option_length = sizeof(option);
+                        if (getsockopt(fd, SOL_SOCKET, SO_ERROR, (void *)&option, &option_length) != 0 || option) {
                             close(fd);
                             fd = -1;
                             continue;
