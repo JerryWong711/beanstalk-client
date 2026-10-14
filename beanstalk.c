@@ -2,7 +2,6 @@
 #include <sys/time.h>
 #include <errno.h>
 #include <assert.h>
-#include <strings.h>
 #include <netinet/tcp.h>
 #include <inttypes.h>
 #include <poll.h>
@@ -52,7 +51,7 @@ const char bs_resp_ok[]             = "OK";
 
 const char* bs_status_text(int code) {
     unsigned int cindex = (unsigned int) abs(code);
-    return (cindex > sizeof(bs_status_verbose) / sizeof(char*)) ? 0 : bs_status_verbose[cindex];
+    return (cindex >= sizeof(bs_status_verbose) / sizeof(char*)) ? 0 : bs_status_verbose[cindex];
 }
 
 int bs_connect(const char *host, uint16_t port) {
@@ -230,7 +229,7 @@ BSM* bs_recv_message(int fd, int expect_data) {
     status_size   = (size_t) (token - message->status);
 
     if (expect_data) {
-        token  = rindex(message->status, ' ');
+        token  = strrchr(message->status, ' ');
         expect_data_bytes = token ? strtoul(token + 1, NULL, 10) : 0;
     }
 
@@ -412,7 +411,7 @@ int64_t bs_put(int fd, uint32_t priority, uint32_t delay, uint32_t ttr, const ch
     char command[1024] = {0};
     size_t command_bytes;
 
-    snprintf(command, 1024, "put %"PRIu32" %"PRIu32" %"PRIu32" %lu\r\n", priority, delay, ttr, bytes);
+    snprintf(command, 1024, "put %"PRIu32" %"PRIu32" %"PRIu32" %zu\r\n", priority, delay, ttr, bytes);
 
     command_bytes = strlen(command);
     packet = bs_message_packet_new(command_bytes + bytes + 3);
@@ -482,7 +481,7 @@ int bs_reserve_job(int fd, char *command, BSJ **result) {
             return BS_STATUS_FAIL;
         }
 
-        sscanf(message->status + strlen(bs_resp_reserved) + 1, "%"PRId64" %lu", &job->id, &job->size);
+        sscanf(message->status + strlen(bs_resp_reserved) + 1, "%"PRId64" %zu", &job->id, &job->size);
         job->data      = message->data;
         message->data  = 0;
         bs_free_message(message);
@@ -566,7 +565,7 @@ int bs_peek_job(int fd, char *command, BSJ **result) {
             return BS_STATUS_FAIL;
         }
 
-        sscanf(message->status + strlen(bs_resp_found) + 1, "%"PRId64" %lu", &job->id, &job->size);
+        sscanf(message->status + strlen(bs_resp_found) + 1, "%"PRId64" %zu", &job->id, &job->size);
         job->data      = message->data;
         message->data  = 0;
         bs_free_message(message);
@@ -614,6 +613,7 @@ int bs_list_tube_used(int fd, char **tube) {
     snprintf(command, 64, "list-tube-used\r\n");
     BS_SEND(fd, command, strlen(command));
     message = bs_recv_message(fd, BS_MESSAGE_NO_BODY);
+    BS_CHECK_MESSAGE(message);
     if (BS_STATUS_IS(message->status, bs_resp_using)) {
         *tube = strdup(message->status + strlen(bs_resp_using) + 1);
         bs_free_message(message);
@@ -630,7 +630,7 @@ int bs_get_info(int fd, char *command, char **yaml) {
     message = bs_recv_message(fd, BS_MESSAGE_HAS_BODY);
     BS_CHECK_MESSAGE(message);
     if (BS_STATUS_IS(message->status, bs_resp_ok)) {
-        sscanf(message->status + strlen(bs_resp_ok) + 1, "%lu", &size);
+        sscanf(message->status + strlen(bs_resp_ok) + 1, "%zu", &size);
         *yaml = message->data;
         (*yaml)[size] = 0;
         message->data = 0;
